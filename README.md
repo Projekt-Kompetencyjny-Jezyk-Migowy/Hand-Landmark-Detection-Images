@@ -1,4 +1,4 @@
-# Hand Detection from Images
+# Hand Landmark Detection from Images
 
 ## Setup
 Aby zainstalować wszystkie potrzebne paczki duo użycia programu użyj komendy w kosoli 
