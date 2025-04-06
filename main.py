@@ -103,6 +103,6 @@ if detection_result.hand_landmarks:
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-    print("✅ Dłoń wykryta, dane i obraz zapisane.")
+    print("Dłoń wykryta, dane i obraz zapisane.")
 else:
-    print("❌ Nie wykryto dłoni na obrazie.")
+    print("Nie wykryto dłoni na obrazie.")
