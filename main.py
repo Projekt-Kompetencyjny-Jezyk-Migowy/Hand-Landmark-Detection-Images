@@ -6,7 +6,6 @@ from mediapipe import solutions
 from mediapipe.framework.formats import landmark_pb2
 import numpy as np
 import os
-from screeninfo import get_monitors
 from PIL import Image, ExifTags
 
 MARGIN = 10
@@ -14,25 +13,27 @@ FONT_SIZE = 1
 FONT_THICKNESS = 1
 HANDEDNESS_TEXT_COLOR = (88, 205, 54)
 
+#By nie obracało obrazu - Poprawne załadowanie zdjęcia z uwzględnieniem jego obrotu zapisanego w danych EXIF
 def load_image_correct_orientation(path):
     image = Image.open(path)
     try:
-        for orientation in ExifTags.TAGS:
+        for orientation in ExifTags.TAGS: #orientation określa w jaki sposób aparat "obracał" zdjęcie
             if ExifTags.TAGS[orientation] == 'Orientation':
                 break
         exif = image._getexif()
-        if exif is not None:
+        if exif is not None: #jeśli istnieje
             orientation_value = exif.get(orientation, None)
-            if orientation_value == 3:
-                image = image.rotate(180, expand=True)
-            elif orientation_value == 6:
+            if orientation_value == 3: #obrócone o 180
+                image = image.rotate(180, expand=True) #obraca odpowiednio obraz
+            elif orientation_value == 6: #obrócone o 270
                 image = image.rotate(270, expand=True)
-            elif orientation_value == 8:
+            elif orientation_value == 8: #obrócone o 90
                 image = image.rotate(90, expand=True)
     except Exception:
         pass
-    return np.array(image.convert("RGB"))
+    return np.array(image.convert("RGB")) #Konwertuje obraz do RGB i zwraca jako tablicę NumPy
 
+#rysuje landmarki i wektory dłoni na obrazie
 def draw_landmarks_on_image(rgb_image, detection_result):
     annotated_image = np.copy(rgb_image)
     for idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
@@ -63,6 +64,7 @@ def draw_landmarks_on_image(rgb_image, detection_result):
 
     return annotated_image
 
+#oblicza wektory
 def calculate_vectors(hand_landmarks):
     vectors = []
     for connection in solutions.hands.HAND_CONNECTIONS:
@@ -74,38 +76,11 @@ def calculate_vectors(hand_landmarks):
     return vectors
 
 
-def save_detection_data(file_base, detection_result, is_flipped=False):
-    # Przygotowanie zbioru danych w formacie do zapisu
-    lines = []
 
-    for idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
-        handedness = detection_result.handedness[idx][0].category_name
-        flip_note = " (flipped)" if is_flipped else ""
-        lines.append(f"Dłoń {idx + 1} ({handedness}{flip_note}):")
-
-        # Dodajemy punkty (x, y, z)
-        for i, lm in enumerate(hand_landmarks):
-            lines.append(f"  Punkt {i}: x={lm.x:.3f}, y={lm.y:.3f}, z={lm.z:.3f}")
-
-        # Dodajemy wektory
-        lines.append("  Wektory:")
-        for start_idx, end_idx, vector in calculate_vectors(hand_landmarks):
-            vx, vy, vz = vector
-            lines.append(f"    {start_idx}→{end_idx}: ({vx:.3f}, {vy:.3f}, {vz:.3f})")
-
-        lines.append("")  # Pusta linia po danych dla jednej ręki
-
-    # Teraz zapisujemy dane do pliku zbiorczego (usuwamy .txt z file_base)
-    txt_path = f"{file_base}.txt"  # Upewniamy się, że rozszerzenie jest dodane tylko raz
-
-    with open(txt_path, "a", encoding="utf-8") as f:  # Dopisujemy do pliku
-        f.write("\n".join(lines))  # Zapisujemy wszystkie linie w jednym pliku
-        f.write("\n\n")  # Pusta linia między danymi z różnych obrazów
-
-    print(f"Dane zapisane do {txt_path}")
-
+#Do formatowania wyników detekcji dłoni(czytelny zapis w txt)
 def format_detection_data(detection_result, is_flipped=False):
-    lines = []
+    lines = [] # lista stringów
+    #Przejście po każdej wykrytej dłoni
     for idx, hand_landmarks in enumerate(detection_result.hand_landmarks):
         handedness = detection_result.handedness[idx][0].category_name
         flip_note = " (flipped)" if is_flipped else ""
@@ -119,23 +94,24 @@ def format_detection_data(detection_result, is_flipped=False):
         lines.append("")  # pusta linia między dłońmi
     return lines
 
-
+#Przetwarzanie obrazów dla jednego ze znaku, zapisuje wyniki detekcji do pliku tekstowego
 def process_and_label_images_for_sign(sign_label, input_dir, output_dir, detector):
-    # Tworzymy folder wyjściowy na dane (jeśli będzie potrzeba)
+    # Nowy folder wyjściowy na dane
     os.makedirs(output_dir, exist_ok=True)
 
     # Lista plików .jpg w katalogu
     image_files = [f for f in os.listdir(input_dir) if f.lower().endswith('.jpg')]
     if not image_files:
-        print(f"{sign_label}: Brak obrazów do przetworzenia.")
+        print(f"{sign_label}: Brak obrazów do przetworzenia.") #czy pusty
         return
 
     all_lines = []
-
+    #przechodzi przez każdy obraz w katalogu input_dir
     for img_name in image_files:
         input_path = os.path.join(input_dir, img_name)
-        base_filename = os.path.splitext(img_name)[0]
+        base_filename = os.path.splitext(img_name)[0] #nazwa pliku bez rozszerzenia
 
+        #Ładowanie i wykrywanie obrazu danego znaku.
         image = mp.Image.create_from_file(input_path)
         detection_result = detector.detect(image)
 
@@ -158,34 +134,32 @@ def process_and_label_images_for_sign(sign_label, input_dir, output_dir, detecto
 
     # Jeśli mamy dane, zapisujemy je do jednego pliku na symbol
     if all_lines:
+        # Tworzy pełną ścieżkę do pliku wyjściowego
         output_path = os.path.join(output_dir, f"{sign_label}.txt")
+        #otwiera plik to zapisu
         with open(output_path, "w", encoding="utf-8") as f:
+            #zapisuje całe zebrane wczesniej dane
             f.write("\n".join(all_lines))
-        print(f"Zapisano {len(all_lines)} linii do: {output_path}")
     else:
-        # Nie było żadnych danych – usuwamy folder
-        print(f"{sign_label}: Brak danych do zapisania, usuwam folder {output_dir}.")
+        #Usuwa folder wyjściowy, ponieważ jest pusty
         os.rmdir(output_dir)
 
-    # Zapisz wszystko do jednego pliku na dany znak
-    output_path = os.path.join(output_dir, f"{sign_label}.txt")
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(all_lines))
-
+#przechodzi przez wszystkie foldery w katalogu wejściowym (np. „a”, „b”, „a+” itd.)
 def process_full_dataset(base_input_dir, base_output_dir, detector):
-    # Przejdź przez wszystkie foldery z symbolami (np. a, b, a+, ...)
+
     for symbol_name in os.listdir(base_input_dir):
         input_dir = os.path.join(base_input_dir, symbol_name)
-        if os.path.isdir(input_dir):
-            print(f"🔤 Przetwarzanie symbolu: {symbol_name}")
+        if os.path.isdir(input_dir): #Sprawdzanie, czy element jest katalogiem
+            print(f" Przetwarzanie symbolu: {symbol_name}")
 
             # Folder wyjściowy dla danego symbolu
             output_dir = os.path.join(base_output_dir, symbol_name)
 
-            # Przetwórz obrazy dla danego znaku
+            # Przetwarza obrazy dla danego znaku
             process_and_label_images_for_sign(symbol_name, input_dir, output_dir, detector)
 
-def detection_all_images_from_folder(input_base="Dataset", output_base="output"):
+#przetwarza wszystkie zdjęcia z datasetu (tworzy obrazy z landmarkami i wektorami i zapisuje je do folderu)
+def detection_all_images_from_folder(input_base="Dataset Migowy PJM", output_base="outputImages"):
 
     base_options = python.BaseOptions(model_asset_path='hand_landmarker.task')
     options = vision.HandLandmarkerOptions(base_options=base_options, num_hands=2)
@@ -224,13 +198,15 @@ def detection_all_images_from_folder(input_base="Dataset", output_base="output")
             else:
                 print(f"{img_file}: Brak wykrycia dłoni.")
 
+#pobieranie wektorow i landmarkow do txt
 def generate_hand_landmark_data(input_base = "Dataset Migowy PJM", output_base = "outputdetection_data"):
-    # Inicjalizacja modelu MediaPipe
+
     base_options = python.BaseOptions(model_asset_path='hand_landmarker.task')
     options = vision.HandLandmarkerOptions(base_options=base_options, num_hands=2)
     detector = vision.HandLandmarker.create_from_options(options)
 
-    # Uruchom przetwarzanie całego datasetu
+    # Przetwarzanie całego datasetu
     process_full_dataset(input_base, output_base, detector)
 
+#detection_all_images_from_folder()
 generate_hand_landmark_data()
